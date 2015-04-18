@@ -1,0 +1,1 @@
+Read "Locking" with spinlock.c and skim mp.c
