@@ -1,0 +1,150 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <title></title>
+<style id="system" type="text/css">body{}</style><style id="custom" type="text/css"></style></head>
+<body><p>6.828 2014 Lecture 7: using virtual memory
+==
+
+</p>
+<ul>
+<li><p>plan: cool things you can do with vm</p>
+<ul>
+<li>kernel tricks (e.g., one zero-filled page)</li>
+<li>faster system calls (e.g., copy-on-write fork)</li>
+<li>new features (e.g., memory-mapped files)</li>
+<li>JOS and VM</li>
+<li>ideas for last lab (final project)</li>
+</ul>
+</li>
+<li><p>virtual memory: several views</p>
+<ul>
+<li>primary purpose: isolation
+each process has its own address space</li>
+<li>Virtual memory provides a level-of-indirection
+provides kernel with opportunity to do cool stuff</li>
+</ul>
+</li>
+<li><p>lazy/on-demand page allocation</p>
+<ul>
+<li>sbrk() is old fashioned;
+it asks application to "predict" how much memory they need
+difficult for applications to predict how much memory they need in advance
+sbrk allocates memory that may never be used.</li>
+<li>moderns OSes allocate memory lazily
+allocate physical memory when application needs it</li>
+<li>HW solution<!---
+  draw xv6 user-part of address space 
+  demo solution; breakpoint right before mappages in trap.c
+  explain page faults
+-->
+</li>
+</ul>
+</li>
+<li><p>share kernel page tables in xv6</p>
+<ul>
+<li>observation:
+kvmalloc() allocates new pages for kernel page table for each process
+but all processes have the same kernel page table</li>
+<li>idea: modify kvmalloc()/freevm() to share kernel page table<!---
+  demo HWKVM
+-->
+</li>
+</ul>
+</li>
+<li><p>guard page to protect against stack overflow</p>
+<ul>
+<li>put a non-mapped page below user stack
+if stack overflows, application will see page fault</li>
+<li>allocate more stack when application runs off stack into guard page <!---
+  draw xv6 user-part of address space 
+  demo stackoverflow 
+  set breakpoint at g
+  run stackoverflow
+  look at $esp
+  look at pg info at qemu console
+  note page has no U bit
+-->
+</li>
+</ul>
+</li>
+<li><p>one zero-filled page</p>
+<ul>
+<li>kernel often fills a page with zeros</li>
+<li>idea: memset <em>one</em> page with zeros
+map that page copy-on-write when kernel needs zero-filled page
+on write make copy of page and map it read/write in app address space</li>
+</ul>
+</li>
+<li><p>copy-on-write fork</p>
+<ul>
+<li>observation:
+xv6 fork copies all pages from parent (see fork())
+but fork is often immediately followed by exec</li>
+<li>idea: share address space between parent and child
+modify fork() to map pages copy-on-write (use extra available system bits in PTEs and PDEs)
+on page fault, make copy of page and map it read/write</li>
+</ul>
+</li>
+<li><p>demand paging</p>
+<ul>
+<li>observation: exec loads the complete file into memory (see exec.c)
+expensive: takes time to do so (e.g., file is stored on a slow disk)
+unnecessary: maybe not the whole file will be used</li>
+<li>idea: load pages from the file on demand
+allocate page table entries, but mark them on-demand
+on fault, read the page in from the file and update page table entry</li>
+<li>challenge: file larger than physical memory (see next idea)</li>
+</ul>
+</li>
+<li><p>use virtual memory larger than physical memory</p>
+<ul>
+<li>observation: application may need more memory than there is physical memory</li>
+<li>idea: store less-frequently used parts of the address space on disk
+page-in and page-out pages of the address address space transparently</li>
+<li>works when working sets fits in physical memory</li>
+</ul>
+</li>
+<li><p>memory-mapped files</p>
+<ul>
+<li>idea: allow access to files using load and store
+can easily read and writes part of a file
+e.g., don't have to change offset using lseek system call</li>
+<li>page-in pages of a file on demand
+when memory is full, page-out pages of a file that are not frequently used</li>
+</ul>
+</li>
+<li><p>shared virtual memory</p>
+<ul>
+<li>idea: allow processes on different machines to share virtual memory
+gives the illusion of physical shared memory, across a network</li>
+<li>replicate pages that are only read</li>
+<li>invalidate copies on write</li>
+</ul>
+</li>
+<li><p>JOS and virtual memory</p>
+<ul>
+<li><p>layout: <a href="l-josmem.html">picture</a></p>
+</li>
+<li><p>UVPT trick (lab 4)
+recursively map PD at 0x3BD
+  virtual address of PD is (0x3BD&lt;&lt;22)|(0x3BD&lt;&lt;12)
+if we want to find pte for virtual page n, compute</p>
+<pre><code>pde_t uvpt[n], where uvpt is (0x3BD &lt;&lt; 22) 
+= uvpt + n * 4 (because pdt is a word)
+= (0xDBD &lt;&lt; 22) | (top 10 bits of n) | (bottom 10 bits of n) &lt;&lt; 2
+= 10 | 10 | 12</code></pre>
+<p>for example, uvpt[0] is address (0x3BD &lt;&lt; 22), following the pointers gives us
+the first entry in the page directory, which points to the first page table, which
+we index with 0, which gives us pte 0</p>
+<p>simpler(?) than pgdirwalk()</p>
+</li>
+<li><p>user-level copy-on-write fork (lab4)
+JOS propagates page faults to user space
+user programs can play similar VM tricks as kernel!
+you will do user-level copy-on-write fork
+Edit By <a href="http://mahua.jser.me">MaHua</a></p>
+</li>
+</ul>
+</li>
+</ul>
+</body></html>
