@@ -1,0 +1,1 @@
+ Read 2.9 (Bitwise operators), 5.1 (Pointers and Addresses) through 5.5(Character Pointers and Functions) and 6.4 (pointers to structures) in K&R
