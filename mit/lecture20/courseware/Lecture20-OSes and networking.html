@@ -1,0 +1,169 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <title></title>
+<style id="system" type="text/css">h1,h2,h3,h4,h5,h6,p,blockquote {    margin: 0;    padding: 0;}body {    font-family: "Helvetica Neue", Helvetica, "Hiragino Sans GB", Arial, sans-serif;    font-size: 13px;    line-height: 18px;    color: #737373;    margin: 10px 13px 10px 13px;}a {    color: #0069d6;}a:hover {    color: #0050a3;    text-decoration: none;}a img {    border: none;}p {    margin-bottom: 9px;}h1,h2,h3,h4,h5,h6 {    color: #404040;    line-height: 36px;}h1 {    margin-bottom: 18px;    font-size: 30px;}h2 {    font-size: 24px;}h3 {    font-size: 18px;}h4 {    font-size: 16px;}h5 {    font-size: 14px;}h6 {    font-size: 13px;}hr {    margin: 0 0 19px;    border: 0;    border-bottom: 1px solid #ccc;}blockquote {    padding: 13px 13px 21px 15px;    margin-bottom: 18px;    font-family:georgia,serif;    font-style: italic;}blockquote:before {    content:"C";    font-size:40px;    margin-left:-10px;    font-family:georgia,serif;    color:#eee;}blockquote p {    font-size: 14px;    font-weight: 300;    line-height: 18px;    margin-bottom: 0;    font-style: italic;}code, pre {    font-family: Monaco, Andale Mono, Courier New, monospace;}code {    background-color: #fee9cc;    color: rgba(0, 0, 0, 0.75);    padding: 1px 3px;    font-size: 12px;    -webkit-border-radius: 3px;    -moz-border-radius: 3px;    border-radius: 3px;}pre {    display: block;    padding: 14px;    margin: 0 0 18px;    line-height: 16px;    font-size: 11px;    border: 1px solid #d9d9d9;    white-space: pre-wrap;    word-wrap: break-word;}pre code {    background-color: #fff;    color:#737373;    font-size: 11px;    padding: 0;}@media screen and (min-width: 768px) {    body {        width: 748px;        margin:10px auto;    }}</style><style id="custom" type="text/css"></style></head>
+<body><p>6.828 2014 Lecture 20: OSes and networking
+==
+
+</p>
+<p>Assigned reading: <a href="https://www.usenix.org/conference/osdi14/technical-sessions/presentation/belay">IX: A Protected Dataplane Operating System for High Throughput and Low Latency</a>
+
+
+</p>
+<p>Plan:
+ Lab 6
+ Commodity OS networking
+ IX
+
+</p>
+<p>Lab 6
+--
+  [ see design picture in lab handout ]
+  No interrupts
+  Many IPCs
+  Much copying of network packet content
+  Any parallelism?
+  Many kernel/User transitions?
+  Where are packet queues?
+  Many scheduling decisions?
+  Could you have long delays to process a packet?
+  Does this design achieve high throughput?
+
+</p>
+<p>Commodity OS (simplified)
+--
+  [ draw picture ]
+  NIC generates interrupt
+  Interrupt handler runs in top-half
+    runs in interrupt context
+    performs miminimal work
+  Kernel schedules Bottom-half runs
+    performs TCP processing
+    copies data into sockets
+    may send some packets from outgoing socket
+  Kernel schedules user-level process
+  User-level process reads data from socket (system call)
+  User-level process writes data to socket (system call)
+    TCP processing as a side-effect of write
+    Write to NIC
+
+</p>
+<p>IX Paper
+--
+ Very recent paper (published two months ago)
+   Builds on Dune paper from last week
+   IX is another example use of Dune
+ Brings a lot of 6.828 topics together
+   Isolation
+   Exokernel architecture
+   Multicore scalability
+   Virtualization
+   Networking
+
+</p>
+<h2>IX</h2>
+<p>Goal: high performance
+  High packets rates for short messages
+    Data center apps involve many servers
+  Low latency, predictable
+    In data centers some messages are short
+  Setting up/closing connection fast
+
+</p>
+<p>Current OSes: fine-grained resource scheduling
+  Multiple applications share a single core
+  System call and interrupt latency &gt; packet interarrival time
+  --&gt; interrupt coaeslecting, queing delay, intermediate buffering, CPU scheduling
+  --&gt; adds latency to packet processing
+  --&gt; buffering and synchronization increase memory and CPU overhead, reduce throughput
+  API introduces sharing
+
+</p>
+<p>Idea: separate control plane from data plane
+  Control plane: responsible for coarse-grained resource allocation
+  Data plane: network stack and app logic
+  Use Dune for isolation of control plane, data plane, and app
+
+</p>
+<p>IX Control plane
+  Schedules resources among data planes
+  CPU core is dedicated to data plane
+  Memory in large pages are allocate to data plane
+  NIC queues are assigned to dataplane cores
+  Data plane has direct access to NIC queue
+
+</p>
+<p>Data plane: a libos specialized for networking
+  Run to completion with adaptive batching
+    Allow use of polling, instead of interrupts
+  Adaptive batching every stage of networking processing
+    system call boundary, network API, NIC queue
+    Only batch under high load
+    Why a maximum batch size?
+  Zero-copy API
+    on receive: packets are mapped read-only into application
+    on send: scatter/gather memory list
+    flow control
+  No interaction between cores
+    RRS flow groups are assigned to a dedicated core, which does all processing
+    Each core has its own memory pool
+    API doesn't incur sharing
+  Elastic threads dedicated to core
+    Run networking processing and app processing code
+    Time limit on app processign code
+  Large pages
+    Why is this important?
+
+</p>
+<p>Isolation between data plane and control
+  User-level stacks
+    No protection between stack and application
+    Stack may interfere with other stacks
+  IX design
+    Linux kernel (with Dune module) runs in root, ring 0
+    IX runs as a library OS in non-root, ring 0
+    Application (with libix) in non-root, ring 3
+  Implementation: Dune
+  Does app have direct access to NIC?
+  Can app write pages after handing it to IX?
+  Can app write messages buffers received from NIC?
+  Who provides the <em>physical</em> addresses to NIC?
+      Is this an isolation problem?
+
+</p>
+<p>Libix: network API (see figure 1b and table 1)
+  low-level API:
+    load network commands into a shared buffer
+    call run_io()
+    ix process shared buffer
+    posts results in shared buffer of event contitions
+    poll NIC
+  libevent
+
+</p>
+<p>Aside: commutativity rule for multicore scalability
+  Recall RadixVM paper:
+    if map/unmap are on different regions, a scalable implementation exists
+  General form:
+    if two operations commute, then a scalable implementation must exist
+  Example:
+    map and unmap on different regions commute
+    thus a scalable implementation exists (e.g., RadixVM)
+  IX uses this rule for the design of its interface to ensure scalability
+    no shared name space of file descriptors
+    cookies instead of fds in table 1
+
+</p>
+<p>IX Performance
+  Comparing Linux, mTCP, and IX
+  What is goodput?
+  Is 5.7usec good?
+    What is the limiting factor?
+    Impact of non-root ring 0 and 3?
+  Why much faster than Linux?
+  Why 99% metric?
+
+
+</p>
+<p>Edit By <a href="http://mahua.jser.me">MaHua</a></p>
+</body></html>
