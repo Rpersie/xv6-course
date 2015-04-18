@@ -1,0 +1,180 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <title></title>
+<style id="system" type="text/css">h1,h2,h3,h4,h5,h6,p,blockquote {    margin: 0;    padding: 0;}body {    font-family: "Helvetica Neue", Helvetica, "Hiragino Sans GB", Arial, sans-serif;    font-size: 13px;    line-height: 18px;    color: #737373;    margin: 10px 13px 10px 13px;}a {    color: #0069d6;}a:hover {    color: #0050a3;    text-decoration: none;}a img {    border: none;}p {    margin-bottom: 9px;}h1,h2,h3,h4,h5,h6 {    color: #404040;    line-height: 36px;}h1 {    margin-bottom: 18px;    font-size: 30px;}h2 {    font-size: 24px;}h3 {    font-size: 18px;}h4 {    font-size: 16px;}h5 {    font-size: 14px;}h6 {    font-size: 13px;}hr {    margin: 0 0 19px;    border: 0;    border-bottom: 1px solid #ccc;}blockquote {    padding: 13px 13px 21px 15px;    margin-bottom: 18px;    font-family:georgia,serif;    font-style: italic;}blockquote:before {    content:"C";    font-size:40px;    margin-left:-10px;    font-family:georgia,serif;    color:#eee;}blockquote p {    font-size: 14px;    font-weight: 300;    line-height: 18px;    margin-bottom: 0;    font-style: italic;}code, pre {    font-family: Monaco, Andale Mono, Courier New, monospace;}code {    background-color: #fee9cc;    color: rgba(0, 0, 0, 0.75);    padding: 1px 3px;    font-size: 12px;    -webkit-border-radius: 3px;    -moz-border-radius: 3px;    border-radius: 3px;}pre {    display: block;    padding: 14px;    margin: 0 0 18px;    line-height: 16px;    font-size: 11px;    border: 1px solid #d9d9d9;    white-space: pre-wrap;    word-wrap: break-word;}pre code {    background-color: #fff;    color:#737373;    font-size: 11px;    padding: 0;}@media screen and (min-width: 768px) {    body {        width: 748px;        margin:10px auto;    }}</style><style id="custom" type="text/css"></style></head>
+<body><p>6.828 2014 Lecture 11: Coordination (sleep&amp;wakeup)
+=
+
+</p>
+<h1>plan</h1>
+<p>  homework
+  sequence coordination
+    xv6: sleep &amp; wakeup
+  challenges
+    lost wakeup problem
+    signals
+
+</p>
+<h1>homework: context switching</h1>
+<p>  user-level context switching
+    same idea as kernel-level
+  show solution
+  Q: what address is 161
+  Q: why is it on the stack?
+  Q: what happens when uthread blocks in kernel?
+  Q: do user-level uthreads run concurrently?
+
+</p>
+<h1>big picture:</h1>
+<p>  Multiple threads executing in the kernel
+  Sharing memory, devices, and various data structures. 
+  Locks to protect invariants
+  One outstanding disk request
+  One scheduler selecting a thread to run
+</p>
+<h1>Show context switching pattern in kernel</h1>
+<h1>sequence coordination:</h1>
+<p>  how to arrange for threads to wait for each other to do 
+    e.g., wait for disk interrupt to complete
+    e.g., wait for pipe readers to make space in pipe
+    e.g., wait for child to exit
+    e.g., wait for block to use
+
+</p>
+<h1>straw man solution: spin</h1>
+<p>  waste CPU cycles if need to spin for long time
+
+</p>
+<h1>better solution: primitives for coordination</h1>
+<p>  sleep &amp; wakeup (xv6)
+  condition variables (homework)
+  barriers (homework)
+  etc.
+
+</p>
+<h1>sleep&amp;wakeup:</h1>
+<p>  sleep(chan, lock)
+    sleeps on a "channel", an address to name the condition we are sleeping on
+
+</p>
+<p>  wakeup(chan)
+     wakeup wakes up all threads sleeping on chan
+     this may wake up more than one thread
+
+</p>
+<p>  threads may need to retest the condition they are waiting for
+  to make sure that they don't proceed, if only one thread can proceed
+  therefore sleep is typically called inside a loop
+
+</p>
+<p>  case study: iderw()
+
+</p>
+<h1>designing and implementing these primitives is difficult</h1>
+<ul>
+<li>why does sleep take the ide lock as argument?
+demo:
+switch acquire(ptable.lock) and release(lk)
+  ie. sleep releases thread's lock before acquiring ptable.lock
+ideintr() runs before sleeper sets its thread state to SLEEPING 
+  it scans proctable but no thread is SLEEPING
+now sleep acquires ptable.lock and sets current thread to SLEEPING
+-&gt; sleep misses wakeup; deadlock<ul>
+<li>signals </li>
+</ul>
+</li>
+</ul>
+<h1>problem: lost wakeup</h1>
+<p>  wakeup happens before sleeper goes to sleep
+  wakeup is lost
+  many solutions to this problem
+   e.g., count wakeups (as semaphores do)
+  all require some new semantics
+
+</p>
+<h1>xv6 solution: sleep takes a lock as argument</h1>
+<p>  sleeper and wakeup acquires locks for shared data structure
+  sleep holds the lock until after it has ptable.lock
+  once it has ptable.lock, no wakeup can come in before it sets state to sleeping
+    -&gt; no lost wakeup problem
+  requires that sleep takes a lock argument!
+
+</p>
+<h1>iderw example</h1>
+<p>  first hold ptable lock
+  set SLEEP
+  then release the lock argument
+  wakeup cannot get lock until sleeper is already to at sleep
+  why a loop around sleep?
+
+</p>
+<h1>Many primitives in literature to solve lost-wakeup problem</h1>
+<p>  counting wakeup&amp;sleep calls in semaphores
+  pass locks as an extra argument in condition variables (as in sleep)
+  etc.
+
+</p>
+<h1>Another example: pipe</h1>
+<p>  what is the race if sleep didn't take p-&gt;lock as argument?
+
+</p>
+<h1>kill: how to kill a process?</h1>
+<p>  problem: target process may be running show you cannot clean it up yet
+  solution: target commits suicide
+    source sets flag 
+    target thread checks flag in trap and exits
+  downside: it may take a while until process is really killed
+   e.g., until timer interrupt goes off
+  another complication: what if target thread is sleeping in the kernel
+
+</p>
+<h1>signals and sleep</h1>
+<p>  goal: user wants to kill a process (ctrl-C), but process is at sleep in the kernel
+  hard to get right:
+    a process could sleep somewhere deep in the kernel
+    a signal forces it out of sleep
+    but when out of sleep,it is <em>not</em> because the condition it is waiting on is true 
+
+</p>
+<h1>xv6 solution</h1>
+<p>  some sleep loops check for p-&gt;killed (e.g., see pipe.c)
+  BUT not always (see ide.c)
+    Q: does iderw check for p-&gt;killed in sleep loop?
+    Q: what goes wrong if we would modify xv6 to check for p-&gt;killed and return
+       from iderw()?
+    A: we might be in the create() system call, doing several disk writes.
+       if iderw() returns, then may leave the on-disk fs in an inconsistent state
+       e.g., block allocated but it doesn't show up in any inode
+  larger problem:
+    a thread may be sleeping deep in the kernel
+    may break invariants if we just bail out
+  xv6 doesn't allow this kill in iderw():
+    target thread may not be killed until much later
+
+</p>
+<h1>xv6 spec for kill</h1>
+<p>  target will never execute a user instruction
+  target may be killed but with (long) delay
+
+</p>
+<h1>Potential race between sleep &amp; setting p-&gt;killed</h1>
+<p>  race:
+    1. target may check p-&gt;killed
+    2. source sets p-&gt;killed
+    3. target calls sleep
+  effect:
+    target will be killed after reading from disk
+      may take a long time before that happens
+    or never
+      see consoleread() in console.c
+      target is waiting for input from console, but user never types again
+  BUT race is <em>not</em> a violation of xv6 spec for kill
+
+</p>
+<h1>Other "solutions" to dealing with sleep and signals</h1>
+<p>  A common approach is use longjmp (unwind the stack), and retry the system call.
+  but also has corner cases that are difficult to get right
+
+</p>
+<p>Edit By <a href="http://mahua.jser.me">MaHua</a></p>
+</body></html>
